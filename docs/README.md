@@ -31,8 +31,6 @@
 </table>
 
 
-
-
 ## 1. Overview
 ### 1.1 Why HDMedi Extractor?
 처방전이나 약봉투 사진에서 한글 약품명을 추출하기 위해선 두 가지 어려움이 있습니다.
@@ -75,7 +73,7 @@ RxBagExtractor는 저희 팀에서 자체 개발한 전처리용 파이썬 패�
 | 197700212   | 브로드세프캡슐250밀리그램(세프라딘수화물)     |   ㅂㄹㄷㅅㅍㅋㅅ  | ㅡㅗㅡㅔㅡㅐㅠ |   ㅂㄹ | 브로드세프캡슐        | 250밀리그램        |
 | 197000014   | 중외염화나트륨주사액(117mg/1ml)  |  ㅈㅇㅇㅎㄴㅌㄹㅈㅅㅇ |  ㅜㅚㅕㅘㅏㅡㅠㅜㅏㅐ  | ㅇㅁㅁㄱ  | 중외염화나트륨주사액        | 117밀리그램/1밀리리터      |
 
-ITEM_NAME 컬럼 전처리에는 `preprocess_text` 함수를, ITEM_NAME_CHO, ITEM_NAME_JUNG, ITEM_NAME_JONG 컬럼을 위해서는 `extract_chojungsung` 함수를 정의하였습니다. 또한 Brand와 Unit 컬럼을 위해서 `extract_unit` 함수를 정의하였습니다. (주의: F1_Score을 쉽게 계산하기 위해 약품명 DB에서 하나의 약품명에 쉼표가 포함된 경우 이를 별개의 문자열로 수정하는 과정을 거쳤습니다.)
+ITEM_NAME 컬럼 전처리에는 `preprocess_text` 함수를, ITEM_NAME_CHO, ITEM_NAME_JUNG, ITEM_NAME_JONG 컬럼을 위해서는 `extract_chojungsung` 함수를 정의하였습니다. 또한 Brand와 Unit 컬럼을 위해서 `extract_unit` 함수를 정의하였고, 이 함수가 중요한 역할을 하기 때문에 아래 <span style="color: blue; font-weight: bold;">6.Appendix</span>에서 더 자세히 설명해 두었습니다. (주의: F1_Score을 쉽게 계산하기 위해 약품명 DB에서 하나의 약품명에 쉼표가 포함된 경우 이를 별개의 문자열로 수정하는 과정을 거쳤습니다.)
 
 ## 3. 함수 호출 순서
 
@@ -231,3 +229,62 @@ process_text(example)
 - Overall Precision: 0.655
 - Overall Recall: 0.728
 - Overall F1 Score: 0.690
+
+# 6. Appendix
+## 6.1 extract_unit(text)
+`extract_unit` 함수의 목적은 약품명DB에서 약품 그룹과 단위를 따로 보관해 두기 위해서입니다. 해당 함수를 실행했을 때의 예시 결과 및 구현한 코드는 아래와 같습니다.
+
+| ITEM_NAME | STANDARDIZED_UNIT | BRAND |
+|-------------|----------------------------|--------|
+| 아르텍연질캡슐10mg(세티리진염산염) | 10밀리그램| 아르텍연질캡슐 |
+|콘티400정|400정|콘티|
+|큐엘파마테스토스테론에난테이트주250mg/mL|250밀리그램/밀리리터|큐엘파마테스토스테론에난테이트주|
+|네스프 프리필드시린지주 20(다베포에틴알파)|20|네스프프리필드시린지주|
+|비가룩스점안액0.5%(목시플록사신염산염)|0.5%|비가룩스점안액|
+|타빈주20mg/ml(시타라빈)|20밀리그램/밀리리터|타빈주|
+|메트란캡슐500㎍(메코발라민)|500마이크로그램|메트란캡슐|
+|"박타신주1.5그램(설박탐나트륨,암피실린나트륨)"|1.5그램|박타신주|
+|아라스틴정(아젤라스틴염산염)|None|아라스틴정|
+|경남토코페롤연질캅셀400아이유|400아이유|경남토코페롤연질캅셀|
+
+
+
+```python
+def extract_unit(text):
+    text = re.sub(r'\(([^:)]*:[^)]*|[^0-9)]*)\)', '', text)
+    text = re.sub(r'수출명:.*$', '', text)
+
+    leftovers = []
+    def store_leftovers(match):
+        leftovers.append(match.group(0))
+        if re.match(r'Ml|ML|mL|ml|㎖', match.group(0), flags=re.IGNORECASE):
+            return '밀리리터'
+        elif re.match(r'밀리(?!리터)\w{2}', match.group(0), flags=re.IGNORECASE):
+            return '밀리그램'
+        elif re.match(r'Mg|MG|mG|mg|㎎|밀리그람|미리그람', match.group(0), flags=re.IGNORECASE):
+            return '밀리그램'
+        elif re.match(r'μg|㎍|마이크로그램', match.group(0), flags=re.IGNORECASE):
+            return '마이크로그램'
+        elif re.match(r'h\b', match.group(0), flags=re.IGNORECASE):
+            return '시간'
+        elif re.match(r'\d+\s*정', match.group(0)):
+            return match.group(0)
+        elif re.match(r'\d+\s*호', match.group(0)):
+            return match.group(0)
+        elif re.match(r'\d+\s*아이유', match.group(0), flags=re.IGNORECASE):
+            return match.group(0)
+        elif re.match(r'그램', match.group(0), flags=re.IGNORECASE) and not re.match(r'밀리그램', match.group(0), flags=re.IGNORECASE):
+            return '그램'
+        elif re.match(r'g\b', match.group(0), flags=re.IGNORECASE):
+            return '그램'
+        else:
+            return match.group(0)
+
+    text = re.sub(r'밀리\w{2}|Mg|MG|mG|mg|㎎|밀리그람|미리그람|Ml|ML|mL|ml|㎖|μg|㎍|마이크로그램|%|퍼센트|h\b|\d+\s*정|\d+\s*호|\d+\s*아이유|그램|g\b', store_leftovers, text, flags=re.IGNORECASE)
+
+    pattern = r'(\d+\s*(정|아이유|호)|\d*\.?\d*\s*(밀리그램|밀리리터|마이크로그램|%|㎎|㎖|시간)|(\d+)\s*$|(\d*\.\d+|\d+)\s*그램)'
+
+    matches = re.findall(pattern, text, flags=re.IGNORECASE)
+    result = '/'.join([match[0] for match in matches if match[0]]) if matches else None
+    return result, leftovers
+```
